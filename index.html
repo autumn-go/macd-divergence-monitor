@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MACD 背离监控中心 · 牛市的筹码微观结构</title>
+<script src="assets/echarts.min.js"></script>
+<script src="data/macd_data.js"></script>
+<style>
+  :root {
+    --r-lg: 22px; --r-md: 16px; --r-sm: 10px;
+    --top: #ff5b6e;      /* 顶背离 = 看空/减仓 信号 */
+    --top-soft: rgba(255,91,110,.14);
+    --bottom: #2ed58a;   /* 底背离 = 看多/机会 信号 */
+    --bottom-soft: rgba(46,213,138,.14);
+    --gold: #f5c451;
+    --blue: #6ea8fe;
+    --ease: cubic-bezier(.16,1,.3,1);
+    --maxw: 1320px;
+  }
+  html[data-theme="dark"] {
+    --bg: #080b12;
+    --bg-2: #0e1320;
+    --surface: rgba(255,255,255,.045);
+    --surface-2: rgba(255,255,255,.07);
+    --surface-hover: rgba(255,255,255,.09);
+    --border: rgba(255,255,255,.09);
+    --border-strong: rgba(255,255,255,.16);
+    --text: #eaf0fa;
+    --text-dim: #9aa6bd;
+    --text-faint: #6b7689;
+    --shadow: 0 18px 50px -20px rgba(0,0,0,.7);
+    --chart-up: #ef4d56; --chart-down: #1bbf83;
+    --grid-line: rgba(255,255,255,.06);
+  }
+  html[data-theme="light"] {
+    --bg: #eef1f8;
+    --bg-2: #ffffff;
+    --surface: rgba(255,255,255,.78);
+    --surface-2: rgba(255,255,255,.92);
+    --surface-hover: #ffffff;
+    --border: rgba(20,32,60,.10);
+    --border-strong: rgba(20,32,60,.18);
+    --text: #16203a;
+    --text-dim: #5a6478;
+    --text-faint: #8a93a6;
+    --shadow: 0 18px 44px -22px rgba(40,60,110,.30);
+    --chart-up: #e03142; --chart-down: #10996b;
+    --grid-line: rgba(20,32,60,.07);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "PingFang SC","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    background-image:
+      radial-gradient(1200px 600px at 12% -8%, rgba(110,168,254,.16), transparent 60%),
+      radial-gradient(1000px 500px at 100% 0%, rgba(245,196,81,.10), transparent 55%),
+      radial-gradient(900px 700px at 50% 120%, rgba(46,213,138,.08), transparent 60%);
+    background-attachment: fixed;
+    transition: background-color .5s var(--ease), color .5s var(--ease);
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 26px 22px 80px; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px; flex-wrap: wrap; margin-bottom: 22px;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand .logo {
+    width: 46px; height: 46px; border-radius: 13px; flex: none;
+    background: linear-gradient(135deg, var(--gold), #ff8a5c);
+    display: grid; place-items: center; font-weight: 800; color: #1a1205;
+    box-shadow: 0 10px 24px -10px rgba(245,196,81,.6); font-size: 20px;
+  }
+  .brand h1 { font-size: 21px; font-weight: 750; letter-spacing: .3px; }
+  .brand p { font-size: 12.5px; color: var(--text-dim); margin-top: 2px; }
+  .head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .updated { font-size: 12px; color: var(--text-dim); }
+  .updated b { color: var(--text); font-weight: 600; }
+
+  .seg {
+    display: inline-flex; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 4px; gap: 2px; backdrop-filter: blur(14px);
+  }
+  .seg button {
+    border: 0; background: transparent; color: var(--text-dim); cursor: pointer;
+    padding: 7px 13px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+    transition: all .25s var(--ease); font-family: inherit;
+  }
+  .seg button.active { background: var(--surface-2); color: var(--text); box-shadow: var(--shadow); }
+  .seg button:hover:not(.active) { color: var(--text); }
+
+  /* ---------- Overview cards ---------- */
+  .overview { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
+  .stat {
+    position: relative; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 18px 18px 16px; backdrop-filter: blur(16px); box-shadow: var(--shadow);
+    transition: transform .35s var(--ease), border-color .35s var(--ease);
+  }
+  .stat:hover { transform: translateY(-4px); border-color: var(--border-strong); }
+  .stat .label { font-size: 12.5px; color: var(--text-dim); display: flex; align-items: center; gap: 7px; }
+  .stat .num { font-size: 34px; font-weight: 800; margin-top: 8px; letter-spacing: .5px; line-height: 1; }
+  .stat .sub { font-size: 12px; color: var(--text-faint); margin-top: 8px; }
+  .stat .num.top { color: var(--top); }
+  .stat .num.bottom { color: var(--bottom); }
+  .stat .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .stat .dot.top { background: var(--top); }
+  .stat .dot.bottom { background: var(--bottom); }
+  .stat .dot.gold { background: var(--gold); }
+
+  /* ---------- Resonance banner ---------- */
+  .resonance {
+    display: none; gap: 12px; align-items: flex-start;
+    background: linear-gradient(100deg, var(--top-soft), transparent 70%);
+    border: 1px solid rgba(255,91,110,.35); border-radius: var(--r-md);
+    padding: 15px 18px; margin-bottom: 18px; backdrop-filter: blur(16px);
+  }
+  .resonance.show { display: flex; }
+  .resonance .ic { font-size: 20px; }
+  .resonance .body { flex: 1; }
+  .resonance .t { font-weight: 700; font-size: 14px; color: var(--top); }
+  .resonance .c { font-size: 12.5px; color: var(--text-dim); margin-top: 4px; }
+  .resonance .chip {
+    display: inline-block; font-size: 11.5px; padding: 3px 9px; border-radius: 999px;
+    background: var(--top-soft); color: var(--top); border: 1px solid rgba(255,91,110,.3);
+    margin: 4px 6px 0 0;
+  }
+
+  /* ---------- Filter bar ---------- */
+  .toolbar {
+    display: flex; gap: 12px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 18px;
+  }
+  .toolbar .group { display: flex; align-items: center; gap: 8px; }
+  .toolbar .gl { font-size: 12px; color: var(--text-faint); }
+  .search {
+    flex: 1; min-width: 180px; max-width: 320px; position: relative;
+  }
+  .search input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 999px; padding: 9px 14px 9px 36px; color: var(--text);
+    font-size: 13px; font-family: inherit; outline: none; transition: border-color .25s;
+  }
+  .search input:focus { border-color: var(--blue); }
+  .search::before { content: "🔍"; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 13px; opacity: .6; }
+  .pill {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+    border-radius: 999px; padding: 8px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+    transition: all .25s var(--ease); font-family: inherit;
+  }
+  .pill:hover { color: var(--text); border-color: var(--border-strong); }
+  .pill.active { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); box-shadow: var(--shadow); }
+  .pill.active.t-top { color: var(--top); border-color: rgba(255,91,110,.4); }
+  .pill.active.t-bottom { color: var(--bottom); border-color: rgba(46,213,138,.4); }
+
+  /* ---------- Cards grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .card {
+    position: relative; cursor: pointer; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 16px 16px 14px; backdrop-filter: blur(16px); box-shadow: var(--shadow);
+    transition: transform .35s var(--ease), border-color .35s var(--ease), box-shadow .35s var(--ease);
+  }
+  .card:hover { transform: translateY(-5px); border-color: var(--border-strong); box-shadow: 0 26px 60px -24px rgba(0,0,0,.55); }
+  .card .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .card .name { font-size: 15.5px; font-weight: 700; }
+  .card .code { font-size: 11px; color: var(--text-faint); margin-top: 2px; font-family: ui-monospace, monospace; }
+  .tag {
+    font-size: 10.5px; padding: 3px 8px; border-radius: 7px; font-weight: 600; white-space: nowrap;
+    background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border);
+  }
+  .tag.broad { color: var(--blue); border-color: rgba(110,168,254,.3); }
+  .tag.industry { color: var(--gold); border-color: rgba(245,196,81,.3); }
+  .spark { width: 100%; height: 54px; margin: 12px 0 10px; display: block; }
+  .periods { display: flex; gap: 6px; }
+  .pbadge {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 7px 4px; border-radius: 10px; background: var(--surface-2);
+    border: 1px solid var(--border); font-size: 10.5px; color: var(--text-faint);
+  }
+  .pbadge .pk { font-weight: 700; font-size: 11px; }
+  .pbadge .pv { font-size: 10px; }
+  .pbadge.none { color: var(--text-faint); }
+  .pbadge.missing { color: var(--text-faint); border-style: dashed; opacity: .7; }
+  .pbadge.top { color: var(--top); border-color: rgba(255,91,110,.35); background: var(--top-soft); }
+  .pbadge.bottom { color: var(--bottom); border-color: rgba(46,213,138,.35); background: var(--bottom-soft); }
+  .pbadge .conf { font-size: 9px; opacity: .85; }
+  .pbadge .pulse { width: 6px; height: 6px; border-radius: 50%; display: inline-block; margin-left: 3px; }
+  .pbadge.top .pulse { background: var(--top); animation: pulse 1.4s infinite; }
+  .pbadge.bottom .pulse { background: var(--bottom); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .35; transform: scale(.7);} }
+  .card .hint { margin-top: 10px; font-size: 11px; color: var(--text-faint); display: flex; justify-content: space-between; align-items: center; }
+  .card .hint .arrow { color: var(--text-dim); }
+
+  /* ---------- Detail modal ---------- */
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(4,7,13,.62); backdrop-filter: blur(8px);
+    display: none; align-items: center; justify-content: center; z-index: 50; padding: 24px;
+  }
+  .modal-mask.show { display: flex; animation: fade .3s var(--ease); }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    width: min(1080px, 100%); max-height: 92vh; overflow: auto;
+    background: var(--bg-2); border: 1px solid var(--border-strong); border-radius: var(--r-lg);
+    box-shadow: 0 40px 90px -30px rgba(0,0,0,.7); padding: 22px 24px 24px;
+  }
+  .modal-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+  .modal-head .ti { font-size: 19px; font-weight: 750; }
+  .modal-head .sc { font-size: 12px; color: var(--text-faint); font-family: ui-monospace, monospace; }
+  .modal-close {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    width: 34px; height: 34px; border-radius: 10px; cursor: pointer; font-size: 16px; flex: none;
+  }
+  .modal-close:hover { background: var(--surface-2); }
+  .modal .pseg { margin-bottom: 14px; }
+  #chart { width: 100%; height: 460px; }
+  .notes { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .note {
+    display: flex; gap: 10px; align-items: flex-start; padding: 11px 13px; border-radius: 12px;
+    background: var(--surface); border: 1px solid var(--border); font-size: 12.8px; color: var(--text-dim);
+  }
+  .note .badge { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 7px; white-space: nowrap; margin-top: 1px; }
+  .note.top .badge { background: var(--top-soft); color: var(--top); }
+  .note.bottom .badge { background: var(--bottom-soft); color: var(--bottom); }
+  .note .txt { flex: 1; }
+
+  footer { margin-top: 36px; text-align: center; font-size: 11.5px; color: var(--text-faint); }
+  footer a { color: var(--text-dim); }
+
+  @media (max-width: 880px) {
+    .overview { grid-template-columns: repeat(2, 1fr); }
+    .brand h1 { font-size: 18px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">MACD</div>
+      <div>
+        <h1>MACD 背离监控中心</h1>
+        <p>牛市的筹码微观结构 · 日线 / 周线 / 月线 顶底背离实时扫描</p>
+      </div>
+    </div>
+    <div class="head-right">
+      <div class="updated">数据更新：<b id="upd">—</b></div>
+      <div class="seg" id="themeSeg">
+        <button data-t="light">亮</button>
+        <button data-t="dark">暗</button>
+        <button data-t="system">自动</button>
+      </div>
+    </div>
+  </header>
+
+  <section class="overview" id="overview"></section>
+
+  <div class="resonance" id="resonance">
+    <div class="ic">⚠️</div>
+    <div class="body">
+      <div class="t">周线 + 日线共振警报</div>
+      <div class="c" id="resonanceC"></div>
+      <div id="resonanceChips"></div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <div class="group">
+      <span class="gl">类别</span>
+      <button class="pill active" data-cat="all">全部</button>
+      <button class="pill" data-cat="broad">宽基</button>
+      <button class="pill" data-cat="industry">行业</button>
+    </div>
+    <div class="group">
+      <span class="gl">周期</span>
+      <button class="pill active" data-per="weekly">周线</button>
+      <button class="pill" data-per="daily">日线</button>
+      <button class="pill" data-per="monthly">月线</button>
+    </div>
+    <div class="group">
+      <span class="gl">信号</span>
+      <button class="pill active" data-sig="all">全部</button>
+      <button class="pill t-top" data-sig="top">顶背离</button>
+      <button class="pill t-bottom" data-sig="bottom">底背离</button>
+    </div>
+    <div class="search"><input id="search" placeholder="搜索指数名称 / 代码…" /></div>
+  </div>
+
+  <section class="grid" id="grid"></section>
+
+  <footer>
+    方法依据《MACD背离形态在牛市中的应用与启示》——价格与 DIF 峰值对比 + 死叉/金叉确认；周线背离中期胜率约 90%，日线约 65%，周线+日线共振最优。<br/>
+    数据来源：<span id="src">Wind 万得金融数据服务</span> · 本页仅供研究参考，不构成投资建议。
+  </footer>
+</div>
+
+<div class="modal-mask" id="modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div>
+        <div class="ti" id="mTitle">—</div>
+        <div class="sc" id="mCode"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <div class="seg pseg" id="mPerSeg">
+          <button data-per="weekly">周线</button>
+          <button data-per="daily">日线</button>
+          <button data-per="monthly">月线</button>
+        </div>
+        <button class="modal-close" id="mClose">✕</button>
+      </div>
+    </div>
+    <div id="chart"></div>
+    <div class="notes" id="mNotes"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var DATA = window.MACD_DATA;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+
+  // ---------- Theme ----------
+  var themeSeg = $("#themeSeg");
+  function applyTheme(t) {
+    if (t === "system") {
+      var sys = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", sys);
+    } else {
+      document.documentElement.setAttribute("data-theme", t);
+    }
+  }
+  function setTheme(t) {
+    localStorage.setItem("macd-theme", t);
+    applyTheme(t);
+    $$("#themeSeg button").forEach(function (b) { b.classList.toggle("active", b.dataset.t === t); });
+    if (currentChart) currentChart.resize();
+  }
+  var savedTheme = localStorage.getItem("macd-theme") || "dark";
+  setTheme(savedTheme);
+  themeSeg.addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return; setTheme(b.dataset.t);
+  });
+  window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function () {
+    if ((localStorage.getItem("macd-theme") || "dark") === "system") applyTheme("system");
+  });
+
+  // ---------- State ----------
+  var state = { cat: "all", per: "weekly", sig: "all", search: "" };
+  var PER_LABEL = { daily: "日线", weekly: "周线", monthly: "月线" };
+  var currentChart = null, currentRec = null, currentPer = "weekly";
+
+  // ---------- Helpers ----------
+  function statusOf(rec, per) {
+    var p = rec.periods[per];
+    return p ? p.status : "none";
+  }
+  function divCount(rec, per, type) {
+    var p = rec.periods[per]; if (!p) return 0;
+    return p.divs.filter(function (d) { return d.type === type; }).length;
+  }
+  function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+
+  // ---------- Overview ----------
+  function renderOverview() {
+    var idxs = DATA.indices;
+    var counts = { daily: { top: 0, bottom: 0 }, weekly: { top: 0, bottom: 0 }, monthly: { top: 0, bottom: 0 } };
+    var reso = [];
+    idxs.forEach(function (r) {
+      ["daily", "weekly", "monthly"].forEach(function (per) {
+        var s = statusOf(r, per);
+        if (s === "top") counts[per].top++;
+        else if (s === "bottom") counts[per].bottom++;
+      });
+      var w = statusOf(r, "weekly"), d = statusOf(r, "daily");
+      if (w !== "none" && d !== "none") reso.push(r.name + "（" + (w === d ? w : w + "/" + d) + "）");
+    });
+
+    var ov = $("#overview");
+    ov.innerHTML =
+      stat("监控标的", DATA.meta.counts.total, DATA.meta.counts.broad + " 宽基 + " + DATA.meta.counts.industry + " 行业", "gold") +
+      stat("日线背离", counts.daily.top + counts.daily.bottom, "顶 " + counts.daily.top + " · 底 " + counts.daily.bottom + "（短期·伪信号多）", "top", counts.daily.top + counts.daily.bottom) +
+      stat("周线背离", counts.weekly.top + counts.weekly.bottom, "顶 " + counts.weekly.top + " · 底 " + counts.weekly.bottom + "（中期·胜率高）", "top", counts.weekly.top + counts.weekly.bottom) +
+      stat("月线背离", counts.monthly.top + counts.monthly.bottom, "顶 " + counts.monthly.top + " · 底 " + counts.monthly.bottom + "（长周期）", "gold", counts.monthly.top + counts.monthly.bottom);
+
+    var rb = $("#resonance");
+    if (reso.length) {
+      rb.classList.add("show");
+      $("#resonanceC").textContent = "以下指数在周线与日线同时出现背离，为文章中所述「共振」信号，须重点防范中期调整：";
+      $("#resonanceChips").innerHTML = reso.map(function (n) { return '<span class="chip">' + n + "</span>"; }).join("");
+    } else { rb.classList.remove("show"); }
+
+    $("#upd").textContent = DATA.meta.generated_at + "（截止 " + DATA.meta.end_date + "）";
+  }
+  function stat(label, num, sub, cls, numCls) {
+    var colorClass = (cls === "top") ? "top" : (cls === "bottom") ? "bottom" : "";
+    var dot = '<span class="dot ' + cls + '"></span>';
+    return '<div class="stat"><div class="label">' + dot + label + '</div>' +
+      '<div class="num ' + colorClass + '">' + num + '</div>' +
+      '<div class="sub">' + sub + '</div></div>';
+  }
+
+  // ---------- Sparkline ----------
+  function drawSpark(canvas, series, status) {
+    var dpr = window.devicePixelRatio || 1;
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    canvas.width = w * dpr; canvas.height = h * dpr;
+    var ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+    var c = series.close;
+    if (!c || !c.length) return;
+    var min = Math.min.apply(null, c), max = Math.max.apply(null, c);
+    var rng = (max - min) || 1;
+    var up = cssVar("--chart-up"), down = cssVar("--chart-down");
+    var col = status === "top" ? cssVar("--top") : status === "bottom" ? cssVar("--bottom") : cssVar("--text-faint");
+    ctx.beginPath();
+    for (var i = 0; i < c.length; i++) {
+      var x = (i / (c.length - 1)) * (w - 4) + 2;
+      var y = h - 4 - ((c[i] - min) / rng) * (h - 8);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.lineJoin = "round"; ctx.stroke();
+    // soft fill
+    ctx.lineTo(w - 2, h); ctx.lineTo(2, h); ctx.closePath();
+    var g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, hexA(col, .22)); g.addColorStop(1, hexA(col, 0));
+    ctx.fillStyle = g; ctx.fill();
+  }
+  function hexA(hex, a) {
+    hex = hex.replace("#", "");
+    if (hex.length === 3) hex = hex.split("").map(function (x) { return x + x; }).join("");
+    var r = parseInt(hex.substr(0, 2), 16), g = parseInt(hex.substr(2, 2), 16), b = parseInt(hex.substr(4, 2), 16);
+    return "rgba(" + r + "," + g + "," + b + "," + a + ")";
+  }
+
+  // ---------- Cards ----------
+  function renderGrid() {
+    var grid = $("#grid"); grid.innerHTML = "";
+    var list = DATA.indices.filter(function (r) {
+      if (state.cat !== "all" && r.category !== state.cat) return false;
+      if (state.search) {
+        var q = state.search.toLowerCase();
+        if (r.name.toLowerCase().indexOf(q) < 0 && r.code.toLowerCase().indexOf(q) < 0) return false;
+      }
+      if (state.sig !== "all") {
+        var s = statusOf(r, state.per);
+        if (state.sig === "top" && s !== "top") return false;
+        if (state.sig === "bottom" && s !== "bottom") return false;
+      }
+      return true;
+    });
+    // sort: has divergence on selected period first, then by name
+    list.sort(function (a, b) {
+      var sa = statusOf(a, state.per) !== "none" ? 0 : 1;
+      var sb = statusOf(b, state.per) !== "none" ? 0 : 1;
+      return sa - sb;
+    });
+
+    if (!list.length) {
+      grid.innerHTML = '<div style="color:var(--text-faint);padding:40px;text-align:center;width:100%">无匹配指数</div>';
+      return;
+    }
+
+    list.forEach(function (r) {
+      var card = document.createElement("div");
+      card.className = "card";
+      var selStatus = statusOf(r, state.per);
+      var catTag = r.category === "broad" ? '<span class="tag broad">宽基</span>' : '<span class="tag industry">行业</span>';
+      var periodsHtml = ["daily", "weekly", "monthly"].map(function (per) {
+        var pobj = r.periods[per];
+        var s = pobj ? pobj.status : "missing";
+        var conf = "";
+        if (pobj && pobj.divs.length) {
+          var d = pobj.divs[pobj.divs.length - 1];
+          conf = d.confirmed ? "✓已确认" : "◷待确认";
+          if (d.active && d.confirmed) conf += '<span class="pulse"></span>';
+        }
+        var cls = s === "none" ? "none" : s;
+        var lbl = s === "missing" ? "缺数据" : s === "none" ? "无" : (s === "top" ? "顶背离" : "底背离");
+        return '<div class="pbadge ' + cls + '"><div class="pk">' + PER_LABEL[per] + '</div>' +
+          '<div class="pv">' + lbl + '</div><div class="conf">' + conf + '</div></div>';
+      }).join("");
+
+      card.innerHTML =
+        '<div class="top"><div><div class="name">' + r.name + '</div><div class="code">' + r.code + '</div></div>' + catTag + '</div>' +
+        '<canvas class="spark"></canvas>' +
+        '<div class="periods">' + periodsHtml + '</div>' +
+        '<div class="hint"><span>点击查看 ' + PER_LABEL[state.per] + ' 背离明细</span><span class="arrow">→</span></div>';
+      card.addEventListener("click", function () { openModal(r, state.per); });
+      grid.appendChild(card);
+      // draw spark after layout
+      requestAnimationFrame(function () {
+        var cv = card.querySelector(".spark");
+        var ser = r.periods[state.per] ? r.periods[state.per].series : null;
+        if (ser) drawSpark(cv, ser, selStatus);
+      });
+    });
+  }
+
+  // ---------- Detail modal + chart ----------
+  function openModal(rec, per) {
+    currentRec = rec; currentPer = per;
+    $("#mTitle").textContent = rec.name;
+    $("#mCode").textContent = rec.code + " · " + (rec.category === "broad" ? "宽基指数" : "Wind一级行业指数");
+    $$("#mPerSeg button").forEach(function (b) { b.classList.toggle("active", b.dataset.per === per); });
+    $("#modal").classList.add("show");
+    renderModal();
+  }
+  function closeModal() { $("#modal").classList.remove("show"); if (currentChart) { currentChart.dispose(); currentChart = null; } }
+  $("#mClose").addEventListener("click", closeModal);
+  $("#modal").addEventListener("click", function (e) { if (e.target === $("#modal")) closeModal(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeModal(); });
+  $("#mPerSeg").addEventListener("click", function (e) {
+    var b = e.target.closest("button"); if (!b) return;
+    currentPer = b.dataset.per;
+    $$("#mPerSeg button").forEach(function (x) { x.classList.toggle("active", x === b); });
+    renderModal();
+  });
+
+  function renderModal() {
+    var rec = currentRec, per = currentPer;
+    var pobj = rec.periods[per];
+    if (!pobj) { $("#chart").innerHTML = "该周期数据缺失"; return; }
+    var s = pobj.series;
+    var up = cssVar("--chart-up"), down = cssVar("--chart-down");
+    var top = cssVar("--top"), bottom = cssVar("--bottom");
+    var axis = cssVar("--text-dim"), grid = cssVar("--grid-line");
+
+    // candlestick data [open, close, low, high]
+    var candle = [], vol = [];
+    for (var i = 0; i < s.dates.length; i++) {
+      candle.push([s.open[i], s.close[i], s.low[i], s.high[i]]);
+      vol.push(s.volume[i]);
+    }
+
+    // divergence markers
+    var mkPrice = [], mkMacd = [];
+    pobj.divs.forEach(function (d) {
+      var idx = d.peak_idx;
+      if (idx < 0 || idx >= s.dates.length) return;
+      var isTop = d.type === "top";
+      mkPrice.push({
+        name: isTop ? "顶背离" : "底背离",
+        coord: [s.dates[idx], isTop ? s.high[idx] * 1.012 : s.low[idx] * 0.988],
+        value: isTop ? "顶" : "底",
+        itemStyle: { color: isTop ? top : bottom },
+        label: { formatter: isTop ? "顶背离" : "底背离", color: isTop ? top : bottom }
+      });
+      mkMacd.push({
+        name: "DIF", coord: [s.dates[idx], s.dif[idx]],
+        symbol: "circle", symbolSize: 9,
+        itemStyle: { color: isTop ? top : bottom },
+        label: { formatter: isTop ? "DIF↓" : "DIF↑", color: isTop ? top : bottom, position: isTop ? "top" : "bottom" }
+      });
+    });
+
+    var option = {
+      animation: true, animationDuration: 600,
+      backgroundColor: "transparent",
+      textStyle: { color: axis, fontFamily: "PingFang SC, Microsoft YaHei, sans-serif" },
+      tooltip: { trigger: "axis", axisPointer: { type: "cross" }, backgroundColor: cssVar("--bg-2"), borderColor: grid, textStyle: { color: cssVar("--text"), fontSize: 12 } },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      legend: { data: ["K线", "DIF", "DEA", "MACD"], top: 0, textStyle: { color: axis }, inactiveColor: cssVar("--text-faint") },
+      grid: [
+        { left: 56, right: 18, top: 34, height: "52%" },
+        { left: 56, right: 18, top: "60%", height: "13%" },
+        { left: 56, right: 18, top: "77%", height: "18%" }
+      ],
+      xAxis: [
+        { type: "category", data: s.dates, gridIndex: 0, axisLine: { lineStyle: { color: grid } }, axisLabel: { show: false }, axisTick: { show: false } },
+        { type: "category", data: s.dates, gridIndex: 1, axisLine: { lineStyle: { color: grid } }, axisLabel: { show: false }, axisTick: { show: false } },
+        { type: "category", data: s.dates, gridIndex: 2, axisLine: { lineStyle: { color: grid } }, axisLabel: { color: axis, fontSize: 10 }, axisTick: { show: false } }
+      ],
+      yAxis: [
+        { scale: true, gridIndex: 0, splitLine: { lineStyle: { color: grid } }, axisLabel: { color: axis, fontSize: 10 }, axisLine: { show: false } },
+        { scale: true, gridIndex: 1, splitNumber: 2, splitLine: { show: false }, axisLabel: { color: axis, fontSize: 9 }, axisLine: { show: false } },
+        { scale: true, gridIndex: 2, splitNumber: 3, splitLine: { lineStyle: { color: grid } }, axisLabel: { color: axis, fontSize: 10 }, axisLine: { show: false } }
+      ],
+      dataZoom: [
+        { type: "inside", xAxisIndex: [0, 1, 2], start: 55, end: 100 },
+        { type: "slider", xAxisIndex: [0, 1, 2], bottom: 4, height: 16, start: 55, end: 100, borderColor: grid, textStyle: { color: axis, fontSize: 9 } }
+      ],
+      series: [
+        {
+          name: "K线", type: "candlestick", data: candle, xAxisIndex: 0, yAxisIndex: 0,
+          itemStyle: { color: up, color0: down, borderColor: up, borderColor0: down },
+          markPoint: { symbol: "pin", symbolSize: 46, data: mkPrice, label: { fontSize: 10, fontWeight: 700 } }
+        },
+        {
+          name: "成交量", type: "bar", data: vol, xAxisIndex: 1, yAxisIndex: 1,
+          itemStyle: { color: function (p) { return p.dataIndex > 0 && s.close[p.dataIndex] >= s.close[p.dataIndex - 1] ? hexA(up, .6) : hexA(down, .6); } }
+        },
+        {
+          name: "DIF", type: "line", data: s.dif, xAxisIndex: 2, yAxisIndex: 2, smooth: true,
+          showSymbol: false, lineStyle: { width: 1.6, color: cssVar("--blue") },
+          markPoint: { data: mkMacd, label: { fontSize: 10, fontWeight: 700 } }
+        },
+        {
+          name: "DEA", type: "line", data: s.dea, xAxisIndex: 2, yAxisIndex: 2, smooth: true,
+          showSymbol: false, lineStyle: { width: 1.4, color: cssVar("--gold"), type: "dashed" }
+        },
+        {
+          name: "MACD", type: "bar", data: s.macd, xAxisIndex: 2, yAxisIndex: 2,
+          itemStyle: { color: function (p) { return p.data >= 0 ? hexA(up, .8) : hexA(down, .8); } }
+        }
+      ]
+    };
+    if (!currentChart) currentChart = echarts.init($("#chart"), null, { renderer: "canvas" });
+    currentChart.setOption(option, true);
+    currentChart.resize();
+
+    // notes
+    var notes = $("#mNotes");
+    if (!pobj.divs.length) {
+      notes.innerHTML = '<div class="note"><span class="badge" style="background:var(--surface-2);color:var(--text-dim)">无</span><div class="txt">当前 ' + PER_LABEL[per] + ' 周期未检测到符合判定标准的顶/底背离。背离需价格与 DIF 峰值反向背离，并经死叉/金叉确认方为有效信号。</div></div>';
+    } else {
+      notes.innerHTML = pobj.divs.map(function (d) {
+        return '<div class="note ' + d.type + '"><span class="badge">' + (d.type === "top" ? "顶背离" : "底背离") +
+          (d.confirmed ? "·已确认" : "·待确认") + '</span><div class="txt">' + d.note + '</div></div>';
+      }).join("");
+    }
+  }
+
+  // ---------- Toolbar wiring ----------
+  $$('[data-cat]').forEach(function (b) { b.addEventListener("click", function () {
+    state.cat = b.dataset.cat; $$('[data-cat]').forEach(function (x) { x.classList.toggle("active", x === b); }); renderGrid();
+  }); });
+  $$('[data-per]').forEach(function (b) { b.addEventListener("click", function () {
+    state.per = b.dataset.per; $$('[data-per]').forEach(function (x) { x.classList.toggle("active", x === b); }); renderGrid();
+  }); });
+  $$('[data-sig]').forEach(function (b) { b.addEventListener("click", function () {
+    state.sig = b.dataset.sig; $$('[data-sig]').forEach(function (x) { x.classList.toggle("active", x === b); }); renderGrid();
+  }); });
+  $("#search").addEventListener("input", function (e) { state.search = e.target.value.trim(); renderGrid(); });
+
+  // ---------- Init ----------
+  if (!DATA) {
+    document.body.innerHTML = '<div style="padding:80px;text-align:center;color:var(--text-dim)">数据未加载。请先运行 macd_monitor.py 生成 data/macd_data.js</div>';
+    return;
+  }
+  renderOverview();
+  renderGrid();
+  window.addEventListener("resize", function () { if (currentChart) currentChart.resize(); });
+})();
+</script>
+</body>
+</html>
